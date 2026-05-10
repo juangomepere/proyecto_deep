@@ -1,199 +1,151 @@
+"""Funciones de entrenamiento y evaluación para modelos PyTorch."""
+
+from __future__ import annotations
+
+import copy
+import os
+from typing import Dict, Tuple
+
+import numpy as np
 import torch
-import torch.nn as nn
-import random
-from tqdm import tqdm
-from src.models import build_inception
-from src.data_loaders import make_dataloaders
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, precision_recall_fscore_support
+from tqdm.auto import tqdm
 
 
-# ================================
-# Regularization functions
-# ================================
-def l1_regularization(model):
-    return sum(p.abs().sum() for p in model.parameters() if p.requires_grad)
+def _get_logits(outputs):
+    """Devuelve logits principales aunque el modelo retorne tupla/objeto InceptionOutputs."""
+    if hasattr(outputs, "logits"):
+        return outputs.logits
+    if isinstance(outputs, tuple):
+        return outputs[0]
+    return outputs
 
 
-# ================================
-# Training & Evaluation
-# ================================
-def train_one_epoch(model, loader, optimizer, criterion, device, l1_lambda=0.0):
+def train_one_epoch(model, dataloader, criterion, optimizer, device, l1_lambda: float = 0.0):
     model.train()
     running_loss = 0.0
-    correct = 0
-    total = 0
+    all_preds, all_labels = [], []
 
-    for images, labels in tqdm(loader, desc="Training", leave=False):
-        images, labels = images.to(device), labels.to(device)
+    for images, labels in tqdm(dataloader, desc="Training", leave=False):
+        images = images.to(device)
+        labels = labels.to(device)
 
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         outputs = model(images)
-        if isinstance(outputs, tuple):
-            logits, aux_logits = outputs[:2]  # Handle possible multiple aux
-            loss_main = criterion(logits, labels)
-            loss_aux = criterion(aux_logits, labels)
-            loss = loss_main + 0.4 * loss_aux
-        else:
-            logits = outputs
-            loss = criterion(logits, labels)
+        logits = _get_logits(outputs)
+        loss = criterion(logits, labels)
 
-        # Add L1 regularization if enabled
+        # Si InceptionV3 devuelve logits auxiliares, se pueden usar para estabilizar entrenamiento.
+        if hasattr(outputs, "aux_logits") and outputs.aux_logits is not None:
+            aux_loss = criterion(outputs.aux_logits, labels)
+            loss = loss + 0.4 * aux_loss
+
         if l1_lambda > 0:
-            l1_reg = l1_regularization(model)
-            loss += l1_lambda * l1_reg
+            l1_penalty = sum(p.abs().sum() for p in model.parameters() if p.requires_grad)
+            loss = loss + l1_lambda * l1_penalty
 
         loss.backward()
         optimizer.step()
 
-        running_loss += loss.item()
-        _, predicted = logits.max(1)
-        total += labels.size(0)
-        correct += predicted.eq(labels).sum().item()
+        preds = logits.argmax(dim=1)
+        running_loss += loss.item() * images.size(0)
+        all_preds.extend(preds.detach().cpu().numpy())
+        all_labels.extend(labels.detach().cpu().numpy())
 
-    acc = 100.0 * correct / total
-    return running_loss / len(loader), acc
+    epoch_loss = running_loss / len(dataloader.dataset)
+    epoch_acc = 100.0 * accuracy_score(all_labels, all_preds)
+    return epoch_loss, epoch_acc
 
 
-def evaluate(model, loader, criterion, device):
+def validate_one_epoch(model, dataloader, criterion, device):
     model.eval()
     running_loss = 0.0
-    correct = 0
-    total = 0
+    all_preds, all_labels = [], []
 
     with torch.no_grad():
-        for images, labels in loader:
-            images, labels = images.to(device), labels.to(device)
+        for images, labels in tqdm(dataloader, desc="Validation", leave=False):
+            images = images.to(device)
+            labels = labels.to(device)
+
             outputs = model(images)
-            logits = outputs[0] if isinstance(outputs, tuple) else outputs
-
+            logits = _get_logits(outputs)
             loss = criterion(logits, labels)
-            running_loss += loss.item()
 
-            _, predicted = logits.max(1)
-            total += labels.size(0)
-            correct += predicted.eq(labels).sum().item()
+            preds = logits.argmax(dim=1)
+            running_loss += loss.item() * images.size(0)
+            all_preds.extend(preds.detach().cpu().numpy())
+            all_labels.extend(labels.detach().cpu().numpy())
 
-    acc = 100.0 * correct / total
-    return running_loss / len(loader), acc
+    epoch_loss = running_loss / len(dataloader.dataset)
+    epoch_acc = 100.0 * accuracy_score(all_labels, all_preds)
+    return epoch_loss, epoch_acc
 
 
-# ================================
-# Full training loop
-# ================================
-def train_model(model, model_name, train_loader, val_loader, criterion, optimizer, device, epochs, l1_lambda=0.0):
-    train_losses, val_losses = [], []
-    train_accs, val_accs = [], []
+def train_model(model, model_name, train_loader, val_loader, criterion, optimizer, device, epochs, save_dir="models"):
+    os.makedirs(save_dir, exist_ok=True)
+    train_losses, val_losses, train_accs, val_accs = [], [], [], []
+    best_acc = -1.0
+    best_state = copy.deepcopy(model.state_dict())
 
     for epoch in range(epochs):
-        train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, device, l1_lambda)
-        val_loss, val_acc = evaluate(model, val_loader, criterion, device)
+        print(f"\nEpoch {epoch + 1}/{epochs}")
+        print("-" * 40)
+
+        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        val_loss, val_acc = validate_one_epoch(model, val_loader, criterion, device)
 
         train_losses.append(train_loss)
         val_losses.append(val_loss)
         train_accs.append(train_acc)
         val_accs.append(val_acc)
 
-        print(f"Epoch [{epoch+1}/{epochs}] "
-              f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | "
-              f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+        print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
+        print(f"Val Loss:   {val_loss:.4f} | Val Acc:   {val_acc:.2f}%")
 
-    # Save model
-    torch.save(model, f"models/{model_name}_model.pth")
+        if val_acc > best_acc:
+            best_acc = val_acc
+            best_state = copy.deepcopy(model.state_dict())
+            path = os.path.join(save_dir, f"{model_name}_best.pth")
+            torch.save(best_state, path)
+            print(f"Mejor modelo guardado: {path}")
 
+    model.load_state_dict(best_state)
     return train_losses, val_losses, train_accs, val_accs
 
 
-# ================================
-# Random Search Pipeline
-# ================================
-def random_search_pipeline(
-    param_grid,
-    train_ds,
-    val_ds,
-    test_ds,
-    epochs,
-    n_iter=10,
-    n_classes=10
-):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    best_acc = 0.0
-    best_experiment_name = None
-    experiment_results = []
+def evaluate(model, dataloader, criterion, device) -> Tuple[float, float]:
+    loss, acc = validate_one_epoch(model, dataloader, criterion, device)
+    return loss, acc
 
-    for i in range(n_iter):
-        # Sample unique config
-        config = {k: random.choice(v) for k, v in param_grid.items()}
 
-        # Avoid exact duplicates
-        while any(
-            config["batch_size"] == e.get("batch_size") and
-            config["learning_rate"] == e.get("learning_rate") and
-            config["optimizers"] == e.get("optimizers") and
-            config["regularizers"] == e.get("regularizers")
-            for e in experiment_results
-        ):
-            config = {k: random.choice(v) for k, v in param_grid.items()}
+def predict_dataset(model, dataloader, device):
+    model.eval()
+    all_preds, all_labels, all_probs = [], [], []
+    with torch.no_grad():
+        for images, labels in tqdm(dataloader, desc="Predicting", leave=False):
+            images = images.to(device)
+            outputs = model(images)
+            logits = _get_logits(outputs)
+            probs = torch.softmax(logits, dim=1)
+            preds = probs.argmax(dim=1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.numpy())
+            all_probs.extend(probs.cpu().numpy())
+    return np.array(all_labels), np.array(all_preds), np.array(all_probs)
 
-        print(f"\nTrial {i+1}/{n_iter}: {config}")
 
-        experiment_name = "inception_" + "_".join(f"{k}_{v}" if k != "optimizers" else f"optim_{v.__name__}" 
-                                                 for k, v in config.items())
-
-        # Data loaders
-        train_loader, val_loader, test_loader, _, _ = make_dataloaders(
-            train_ds, val_ds, test_ds, 
-            batch_size=config["batch_size"], 
-            model_name="inception", 
-            augment=True
-        )
-
-        # Model & loss
-        model = build_inception(num_classes=n_classes).to(device)
-        criterion = nn.CrossEntropyLoss()
-
-        # === OPTIMIZER + REGULARIZATION ===
-        l1_lambda = 0.0
-        opt_params = {"lr": config["learning_rate"]}
-
-        regularizer = config["regularizers"]  # ← aquí usamos tu nombre correcto
-
-        if regularizer == "l2":
-            opt_params["weight_decay"] = 0.01
-        elif regularizer == "l1":
-            l1_lambda = 0.01
-        # "none" → no hacemos nada
-
-        optimizer = config["optimizers"](model.parameters(), **opt_params)  # ← plural correcto
-
-        # Train
-        train_losses, val_losses, train_accs, val_accs = train_model(
-            model, experiment_name, train_loader, val_loader,
-            criterion, optimizer, device, epochs, l1_lambda=l1_lambda
-        )
-
-        # Test
-        test_loss, test_acc = evaluate(model, test_loader, criterion, device)
-
-        # Track best
-        if test_acc > best_acc:
-            best_acc = test_acc
-            best_experiment_name = experiment_name
-
-        # Save results
-        experiment_results.append({
-            "experiment_name": experiment_name,
-            "batch_size": config["batch_size"],
-            "learning_rate": config["learning_rate"],
-            "optimizer": config["optimizers"].__name__,
-            "regularizer": config["regularizers"],
-            "test_accuracy": test_acc,
-            "test_loss": test_loss,
-            "train_losses": train_losses,
-            "val_losses": val_losses,
-            "train_accuracies": train_accs,
-            "val_accuracies": val_accs,
-        })
-
-        print(f"→ Test Accuracy: {test_acc:.2f}% | Best so far: {best_acc:.2f}%\n")
-
-    print(f"\nBEST MODEL: {best_experiment_name} → {best_acc:.2f}% test accuracy")
-    return best_experiment_name, experiment_results
+def classification_metrics(model, dataloader, device, class_names=None) -> Dict:
+    y_true, y_pred, y_prob = predict_dataset(model, dataloader, device)
+    precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="weighted", zero_division=0)
+    report = classification_report(y_true, y_pred, target_names=class_names, zero_division=0) if class_names else classification_report(y_true, y_pred, zero_division=0)
+    return {
+        "accuracy": 100.0 * accuracy_score(y_true, y_pred),
+        "precision_weighted": precision,
+        "recall_weighted": recall,
+        "f1_weighted": f1,
+        "confusion_matrix": confusion_matrix(y_true, y_pred),
+        "classification_report": report,
+        "y_true": y_true,
+        "y_pred": y_pred,
+        "y_prob": y_prob,
+    }

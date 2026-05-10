@@ -1,43 +1,73 @@
-# Transfer Learning Workshop
+# Proyecto Deep Learning — Pothole Detection
 
-Comparative study of transfer learning using three pretrained ImageNet models — **VGG16**, **ResNet50**, and **InceptionV3** — fine-tuned on **CIFAR-10** (10-class image classification).
+Proyecto modular en PyTorch para clasificar imágenes de vías como `pothole` o `no pothole` usando transfer learning con InceptionV3.
 
-All backbone weights are frozen; only a lightweight classification head is trained on top. The project also includes a **Grad-CAM** explainability module to visualize which regions of an image the model focuses on when making predictions.
+## Estructura
 
-## Project structure
-
-```
-src/
-  models.py         # Build VGG16, ResNet50, InceptionV3 with custom heads
-  data_loaders.py   # CIFAR-10 loading, train/val/test split, augmentation
-  model_training.py # Training loop, evaluation, random hyperparameter search
-  xai.py            # Grad-CAM implementation (hooks, backward pass, heatmap)
-transfer_learning_workshop.ipynb  # Main notebook
-```
-
-## Key features
-
-- **Feature extraction**: backbone frozen, only the head is trained
-- **Data augmentation**: random horizontal flip, rotation, affine transforms
-- **Hyperparameter search**: random search over learning rate, batch size, optimizer, and regularization (L1 / L2 / none) for InceptionV3
-- **Explainability**: Grad-CAM heatmaps overlaid on input images
-
-## Setup
-
-### GPU (CUDA 12.8)
-
-```bash
-uv sync --group gpu
+```text
+proyecto_deep/
+├── pothole_detection.ipynb
+├── requirements.txt
+├── src/
+│   ├── __init__.py
+│   ├── data_loaders.py
+│   ├── model_training.py
+│   ├── models.py
+│   ├── utils.py
+│   └── xai.py
+├── models/
+└── output/
 ```
 
-### CPU only
+## Uso en Google Colab
 
-```bash
-uv sync --group cpu
+1. Sube esta carpeta a GitHub o súbela como ZIP a Colab.
+2. Si usas GitHub:
+
+```python
+%cd /content
+!git clone https://github.com/TU_USUARIO/proyecto_deep.git
+%cd /content/proyecto_deep
+!pip install -r requirements.txt
 ```
 
-Then open the notebook:
+3. Si subes el ZIP manualmente:
 
-```bash
-uv run jupyter notebook transfer_learning_workshop.ipynb
+```python
+%cd /content
+!unzip proyecto_deep_arreglado.zip -d .
+%cd /content/proyecto_deep_arreglado
+!pip install -r requirements.txt
 ```
+
+4. En Colab activa GPU:
+
+```text
+Entorno de ejecución → Cambiar tipo de entorno de ejecución → GPU T4
+```
+
+## Archivos principales
+
+- `src/data_loaders.py`: carga dataset, EDA y `DataLoader`.
+- `src/models.py`: modelos CNN con transfer learning.
+- `src/model_training.py`: entrenamiento, validación y métricas.
+- `src/utils.py`: visualizaciones.
+- `src/xai.py`: Grad-CAM.
+- `pothole_detection.ipynb`: notebook principal para ejecutar todo el flujo.
+
+## Dataset
+
+Dataset usado: `taroii/pothole-detection` desde Hugging Face.
+
+## Flujo del notebook
+
+1. Configuración del entorno.
+2. Carga del dataset.
+3. EDA: distribución de clases, muestras, dimensiones e intensidad de píxeles.
+4. Preprocesamiento y DataLoaders.
+5. Transfer learning con InceptionV3.
+6. Fase 1: feature extraction.
+7. Fase 2: fine-tuning.
+8. Evaluación final con matriz de confusión y classification report.
+9. Visualización de predicciones.
+10. Grad-CAM para explicabilidad.
