@@ -1,5 +1,17 @@
 # Proyecto Deep Learning — Detección de Huecos en Vías con Transfer Learning
 
+## 0. Instalación de dependencias
+
+Antes de ejecutar el proyecto, instalar las librerías necesarias con:
+
+```bash
+pip install -r requirements.txt
+```
+
+Esto instalará automáticamente todas las dependencias listadas en `requirements.txt`.
+
+---
+
 ## 1. Descripción general
 
 Este proyecto implementa un sistema de clasificación de imágenes para detectar la presencia de huecos en vías a partir de fotografías de carreteras. El objetivo principal es construir un modelo de Deep Learning capaz de clasificar una imagen en una de dos clases:
