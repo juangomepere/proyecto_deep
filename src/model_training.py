@@ -1,4 +1,15 @@
-"""Funciones de entrenamiento y evaluación para modelos PyTorch."""
+"""Funciones de entrenamiento y evaluación para modelos PyTorch.
+
+1. _get_logits()
+2. train_one_epoch()
+3. validate_one_epoch()
+4. train_model()
+5. evaluate()
+6. predict_dataset()
+7. classification_metrics()
+
+
+"""
 
 from __future__ import annotations
 

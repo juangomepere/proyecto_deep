@@ -1,4 +1,14 @@
-"""Funciones auxiliares de visualización."""
+"""Funciones auxiliares de visualización.
+
+1. unnormalize()
+2. tensor_to_uint8_image()
+3. plot_training_curves()
+4. plot_confusion_matrix()
+5. show_batch()
+6. show_predictions()
+
+
+"""
 
 from __future__ import annotations
 

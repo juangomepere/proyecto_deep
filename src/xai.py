@@ -1,4 +1,16 @@
-"""Grad-CAM simple para explicar predicciones del modelo."""
+"""Grad-CAM simple para explicar predicciones del modelo.
+
+1. _get_module_by_name()
+2. attach_hooks()
+3. run_forward()
+4. run_backward()
+5. compute_gradcam()
+6. resize_cam()
+7. tensor_to_uint8()
+8. overlay_cam()
+
+
+"""
 
 from __future__ import annotations
 

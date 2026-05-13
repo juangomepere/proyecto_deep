@@ -2,6 +2,19 @@
 
 Dataset principal: taroii/pothole-detection (Hugging Face).
 El problema se formula como clasificación binaria: pothole vs no pothole.
+
+1. Constantes de normalización ImageNet
+2. Clase DatasetInfo
+3. Clase PotholeDataset
+4. load_pothole_dataset()
+5. get_transforms()
+6. create_dataloaders()
+7. class_distribution()
+8. plot_class_distribution()
+9. show_samples_by_class()
+10. image_dimension_report()
+11. pixel_statistics_report()
+
 """
 
 from __future__ import annotations

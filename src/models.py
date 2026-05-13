@@ -1,4 +1,12 @@
-"""Arquitecturas CNN para transfer learning."""
+"""Arquitecturas CNN para transfer learning.
+
+1. set_parameter_requires_grad()
+2. build_pothole_inception()
+3. build_pothole_resnet18()
+4. unfreeze_last_layers()
+5. count_trainable_parameters()
+
+"""
 
 from __future__ import annotations
 
