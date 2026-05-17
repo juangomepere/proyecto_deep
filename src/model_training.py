@@ -92,11 +92,29 @@ def validate_one_epoch(model, dataloader, criterion, device):
     return epoch_loss, epoch_acc
 
 
-def train_model(model, model_name, train_loader, val_loader, criterion, optimizer, device, epochs, save_dir="models"):
+def train_model(
+    model,
+    model_name,
+    train_loader,
+    val_loader,
+    criterion,
+    optimizer,
+    device,
+    epochs,
+    save_dir: str = "models",
+    patience: int = 5,
+    scheduler=None,
+):
+    """Entrena el modelo con early stopping basado en val_loss y soporte de scheduler.
+
+    El mejor modelo se guarda por val_loss (más robusto que val_acc con clases desbalanceadas).
+    El entrenamiento se detiene si val_loss no mejora durante `patience` épocas consecutivas.
+    """
     os.makedirs(save_dir, exist_ok=True)
     train_losses, val_losses, train_accs, val_accs = [], [], [], []
-    best_acc = -1.0
-    best_state = copy.deepcopy(model.state_dict())
+    best_val_loss = float("inf")
+    best_state = None
+    epochs_no_improve = 0
 
     for epoch in range(epochs):
         print(f"\nEpoch {epoch + 1}/{epochs}")
@@ -113,14 +131,28 @@ def train_model(model, model_name, train_loader, val_loader, criterion, optimize
         print(f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
         print(f"Val Loss:   {val_loss:.4f} | Val Acc:   {val_acc:.2f}%")
 
-        if val_acc > best_acc:
-            best_acc = val_acc
+        if scheduler is not None:
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(val_loss)
+            else:
+                scheduler.step()
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
             best_state = copy.deepcopy(model.state_dict())
             path = os.path.join(save_dir, f"{model_name}_best.pth")
             torch.save(best_state, path)
-            print(f"Mejor modelo guardado: {path}")
+            epochs_no_improve = 0
+            print(f"  Mejor modelo guardado (val_loss={val_loss:.4f}): {path}")
+        else:
+            epochs_no_improve += 1
+            print(f"  Sin mejora en val_loss ({epochs_no_improve}/{patience})")
+            if epochs_no_improve >= patience:
+                print(f"Early stopping en época {epoch + 1}.")
+                break
 
-    model.load_state_dict(best_state)
+    if best_state is not None:
+        model.load_state_dict(best_state)
     return train_losses, val_losses, train_accs, val_accs
 
 
@@ -147,13 +179,17 @@ def predict_dataset(model, dataloader, device):
 
 def classification_metrics(model, dataloader, device, class_names=None) -> Dict:
     y_true, y_pred, y_prob = predict_dataset(model, dataloader, device)
-    precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average="weighted", zero_division=0)
+    precision_w, recall_w, f1_w, _ = precision_recall_fscore_support(y_true, y_pred, average="weighted", zero_division=0)
+    precision_m, recall_m, f1_m, _ = precision_recall_fscore_support(y_true, y_pred, average="macro", zero_division=0)
     report = classification_report(y_true, y_pred, target_names=class_names, zero_division=0) if class_names else classification_report(y_true, y_pred, zero_division=0)
     return {
         "accuracy": 100.0 * accuracy_score(y_true, y_pred),
-        "precision_weighted": precision,
-        "recall_weighted": recall,
-        "f1_weighted": f1,
+        "precision_weighted": precision_w,
+        "recall_weighted": recall_w,
+        "f1_weighted": f1_w,
+        "precision_macro": precision_m,
+        "recall_macro": recall_m,
+        "f1_macro": f1_m,
         "confusion_matrix": confusion_matrix(y_true, y_pred),
         "classification_report": report,
         "y_true": y_true,
