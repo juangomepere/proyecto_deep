@@ -59,11 +59,28 @@ def build_pothole_resnet18(num_classes: int = 2, dropout: float = 0.4, feature_e
     return model
 
 
-def unfreeze_last_layers(model, num_layers: int = 40):
-    """Descongela las últimas `num_layers` capas/parámetros del modelo."""
-    params = list(model.parameters())
-    for param in params[-num_layers:]:
+def unfreeze_last_layers(model, blocks: list = None):
+    """Descongela bloques lógicos de InceptionV3 por nombre.
+
+    blocks: lista de nombres de módulos hijo, e.g. ["Mixed_7b", "Mixed_7c"].
+    Si blocks es None solo se desbloquea el clasificador fc.
+    """
+    if blocks is None:
+        blocks = []
+
+    for name, module in model.named_children():
+        if name in blocks:
+            for param in module.parameters():
+                param.requires_grad = True
+            print(f"  Descongelado: {name}")
+
+    for param in model.fc.parameters():
         param.requires_grad = True
+
+    if getattr(model, "AuxLogits", None) is not None:
+        for param in model.AuxLogits.fc.parameters():
+            param.requires_grad = True
+
     return model
 
 
